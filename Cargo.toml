@@ -1,0 +1,15 @@
+[package]
+name = "rill"
+version = "0.1.0"
+authors = ["Remi Attab <remi.attab@gmail.com>"]
+license = "2-Clause BSD"
+description = "Rust bindings for rill"
+repository = "https://github.com/RAttab/rill-rs.git"
+
+build = "build.rs"
+
+[dependencies]
+libc = "0.2"
+
+[build-dependencies]
+gcc = "0.3"
