@@ -1,4 +1,4 @@
 [submodule "rill"]
 	path = rill
-	url = git@github.com:RAttab/rill
+	url = https://github.com/RAttab/rill
 	branch = master
