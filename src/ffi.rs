@@ -21,7 +21,10 @@ pub struct rill_kv {
 pub enum rill_pairs {}
 
 #[allow(non_camel_case_types)]
-pub enum rill {}
+pub enum rill_acc {}
+
+#[allow(non_camel_case_types)]
+pub enum rill_query {}
 
 #[link(name = "rill")]
 #[allow(non_camel_case_types)]
@@ -36,16 +39,20 @@ extern "C" {
         pairs: *mut rill_pairs, key: rill_key_t, val: rill_val_t) -> *mut rill_pairs;
     pub fn rill_pairs_compact(pairs: *mut rill_pairs);
 
-    pub fn rill_open(dir: *const libc::c_char) -> *mut rill;
-    pub fn rill_close(db: *mut rill);
-    pub fn rill_ingest(db: *mut rill, key: rill_key_t, val: rill_val_t) -> bool;
-    pub fn rill_rotate(db: *mut rill, now: rill_ts_t) -> bool;
+    pub fn rill_acc_open(dir: *const libc::c_char, cap: libc::size_t) -> *mut rill_acc;
+    pub fn rill_acc_close(acc: *mut rill_acc);
+    pub fn rill_acc_ingest(acc: *mut rill_acc, key: rill_key_t, val: rill_val_t);
+
+    pub fn rill_rotate(dir: *const libc::c_char, now: rill_ts_t) -> bool;
+
+    pub fn rill_query_open(dir: *const libc::c_char) -> *mut rill_query;
+    pub fn rill_query_close(query: *mut rill_query);
     pub fn rill_query_key(
-            db: *mut rill,
+            query: *const rill_query,
             keys: *const rill_key_t, len: libc::size_t,
             out: *mut rill_pairs) -> *mut rill_pairs;
     pub fn rill_query_val(
-            db: *mut rill,
+            query: *const rill_query,
             vals: *const rill_val_t, len: libc::size_t,
             out: *mut rill_pairs) -> *mut rill_pairs;
 }

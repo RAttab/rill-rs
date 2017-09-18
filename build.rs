@@ -8,7 +8,7 @@ fn main() {
 
     let src: PathBuf = [base.as_str(), "rill", "src"].iter().collect();
     let mut obj: Vec<String> =
-        vec!("htable.c", "pairs.c", "rill.c", "rng.c", "store.c")
+        vec!("htable.c", "rng.c", "utils.c", "pairs.c", "store.c", "acc.c", "rotate.c", "query.c")
         .iter() .map(|&obj| {
             let mut path = src.clone();
             path.push(obj);

@@ -10,9 +10,7 @@ pub type Val = ffi::rill_val_t;
 pub type KV = ffi::rill_kv;
 
 // \todo Need to add iterator support.
-pub struct Pairs {
-    pairs: *mut ffi::rill_pairs,
-}
+pub struct Pairs { pairs: *mut ffi::rill_pairs }
 
 impl Pairs {
     pub fn new(cap: usize) -> Result<Pairs> {
@@ -76,95 +74,116 @@ fn test_pairs() {
 }
 
 
-pub struct Db {
-    db: *mut ffi::rill,
+pub fn rotate(dir: &str, now: Ts) -> Result<()> {
+    let c_dir = match std::ffi::CString::new(dir.as_bytes()) {
+        Ok(val) => val,
+        Err(err) => return Err(format!("invalid dir path: '{}': {}", dir, err)),
+    };
+
+    let ret = unsafe { ffi::rill_rotate(c_dir.as_ptr(), now) };
+    if !ret { return Err(format!("error occured while rotating '{}'", dir)) };
+    return Ok(())
 }
 
-impl Db {
-    pub fn new(dir: &str) -> Result<Db> {
+pub struct Acc { acc: *mut ffi::rill_acc }
+
+impl Acc {
+    pub fn new(dir: &str, cap: usize) -> Result<Acc> {
         let c_dir = match std::ffi::CString::new(dir.as_bytes()) {
             Ok(val) => val,
             Err(err) => return Err(format!("invalid dir path: '{}': {}", dir, err)),
         };
 
-        unsafe {
-            let db = ffi::rill_open(c_dir.as_ptr());
-            if db.is_null() { return Err(format!("unable to open db '{}'", dir)) }
-            Ok(Db{db: db})
-        }
+        let acc = unsafe { ffi::rill_acc_open(c_dir.as_ptr(), cap) };
+        if acc.is_null() { return Err(format!("unable to open acc '{}'", dir)) }
+        Ok(Acc{acc: acc})
     }
 
-    pub fn ingest(&mut self, key: Key, val: Val) -> Result<()> {
-        unsafe {
-            if !ffi::rill_ingest(self.db, key, val) {
-                return Err(format!("unable to injest: key={}, val={}'", key, val))
-            }
-        }
-        Ok(())
+    pub fn ingest(&mut self, key: Key, val: Val) {
+        unsafe { ffi::rill_acc_ingest(self.acc, key, val) }
     }
+}
 
-    pub fn rotate(&mut self, now: Ts) -> Result<()> {
-        unsafe {
-            if !ffi::rill_rotate(self.db, now) {
-                return Err(format!("unable to rotate at timestamp '{}'", now))
-            }
-        }
-        Ok(())
+impl Drop for Acc {
+    fn drop(&mut self) {
+        unsafe { ffi::rill_acc_close(self.acc) }
+    }
+}
+
+
+pub struct Query { query: *mut ffi::rill_query }
+
+impl Query {
+    pub fn new(dir: &str) -> Result<Query> {
+        let c_dir = match std::ffi::CString::new(dir.as_bytes()) {
+            Ok(val) => val,
+            Err(err) => return Err(format!("invalid dir path: '{}': {}", dir, err)),
+        };
+
+        let query = unsafe { ffi::rill_query_open(c_dir.as_ptr()) };
+        if query.is_null() { return Err(format!("unable to open query '{}'", dir)) }
+        Ok(Query{query: query})
     }
 
     // We pass in a &mut Pairs instead of returning as it allows to
     // pre-size the object size and to reuse the object across
     // multiple function calls.
-    pub fn query_key(&mut self, keys: &[Key], pairs: &mut Pairs) -> Result<()> {
-        unsafe {
-            let result = ffi::rill_query_key(self.db, keys.as_ptr(), keys.len(), pairs.pairs);
-            if result.is_null() { return Err(format!("unable to query keys: {:?}", keys)); }
-            pairs.pairs = result;
-        }
+    pub fn keys(&self, keys: &[Key], pairs: &mut Pairs) -> Result<()> {
+        let result = unsafe {
+            ffi::rill_query_key(self.query, keys.as_ptr(), keys.len(), pairs.pairs)
+        };
+        if result.is_null() { return Err(format!("unable to query keys: {:?}", keys)); }
+
+        pairs.pairs = result;
         Ok(())
     }
 
     // \todo We only ever expect one val query during the lifetime of
     // the process so it's worth considering just returning a pairs
     // and not worrying too much about performance.
-    pub fn query_val(&mut self, vals: &[Val], pairs: &mut Pairs) -> Result<()> {
-        unsafe {
-            let result = ffi::rill_query_val(self.db, vals.as_ptr(), vals.len(), pairs.pairs);
-            if result.is_null() { return Err(format!("unable to query vals: {:?}", vals)); }
-            pairs.pairs = result
-        }
+    pub fn vals(&self, vals: &[Val], pairs: &mut Pairs) -> Result<()> {
+        let result = unsafe {
+            ffi::rill_query_val(self.query, vals.as_ptr(), vals.len(), pairs.pairs)
+        };
+        if result.is_null() { return Err(format!("unable to query vals: {:?}", vals)); }
+
+        pairs.pairs = result;
         Ok(())
     }
 }
 
-impl Drop for Db {
+impl Drop for Query {
     fn drop(&mut self) {
-        unsafe { ffi::rill_close(self.db) }
+        unsafe { ffi::rill_query_close(self.query) }
     }
 }
 
 #[test]
-fn test_db() {
-    let dir = "/tmp/rill-test";
+fn test_rotate_query() {
+    let dir = "/tmp/rill-rs.test";
     let _ = std::fs::remove_dir_all(dir);
-    let mut db = Db::new(dir).unwrap();
-
-    db.ingest(1, 10).unwrap();
-    db.rotate(1 * 60 * 60).unwrap();
-
-    db.ingest(2, 10).unwrap();
-    db.ingest(1, 10).unwrap();
-    db.rotate(2 * 60 * 60).unwrap();
-
-    db.ingest(2, 10).unwrap();
-    db.ingest(1, 20).unwrap();
-    db.rotate(3 * 60 * 60).unwrap();
-
-    db.ingest(1, 30).unwrap();
 
     {
+        let mut acc = Acc::new(dir, 2).unwrap();
+
+        acc.ingest(1, 10);
+        rotate(dir, 1 * 60 * 60).unwrap();
+
+        acc.ingest(2, 10);
+        acc.ingest(1, 10);
+        rotate(dir, 2 * 60 * 60).unwrap();
+
+        acc.ingest(2, 10);
+        acc.ingest(1, 20);
+        rotate(dir, 3 * 60 * 60).unwrap();
+
+        acc.ingest(1, 30);
+    }
+
+    let query = Query::new(dir).unwrap();
+    {
         let mut pairs = Pairs::new(1).unwrap();
-        db.query_key(&[1], &mut pairs).unwrap();
+        query.keys(&[1], &mut pairs).unwrap();
         assert_eq!(pairs.len(), 2);
         assert_eq!(*pairs.get(0), KV{key: 1, val: 10});
         assert_eq!(*pairs.get(1), KV{key: 1, val: 20});
@@ -172,14 +191,14 @@ fn test_db() {
 
     {
         let mut pairs = Pairs::new(1).unwrap();
-        db.query_key(&[2, 3], &mut pairs).unwrap();
+        query.keys(&[2, 3], &mut pairs).unwrap();
         assert_eq!(pairs.len(), 1);
         assert_eq!(*pairs.get(0), KV{key: 2, val: 10});
     }
 
     {
         let mut pairs = Pairs::new(1).unwrap();
-        db.query_val(&[10], &mut pairs).unwrap();
+        query.vals(&[10], &mut pairs).unwrap();
         assert_eq!(pairs.len(), 2);
         assert_eq!(*pairs.get(0), KV{key: 1, val: 10});
         assert_eq!(*pairs.get(1), KV{key: 2, val: 10});
@@ -187,7 +206,7 @@ fn test_db() {
 
     {
         let mut pairs = Pairs::new(1).unwrap();
-        db.query_val(&[20, 30], &mut pairs).unwrap();
+        query.vals(&[20, 30], &mut pairs).unwrap();
         assert_eq!(pairs.len(), 1);
         assert_eq!(*pairs.get(0), KV{key: 1, val: 20});
     }
