@@ -2,6 +2,8 @@ extern crate libc;
 
 mod ffi;
 
+use std::path::Path;
+
 pub type Result<T> = std::result::Result<T, String>;
 
 pub type Ts = ffi::rill_ts_t;
@@ -73,29 +75,34 @@ fn test_pairs() {
     }
 }
 
+// Pretty sure the UTF-8 checks between the path and the str
+// conversions are redundant and just make things annoying to write.
+fn path_to_c_str(path: &Path) -> Result<std::ffi::CString> {
+    match path.to_str() {
+        Some(str_path) =>
+            match std::ffi::CString::new(str_path.as_bytes()) {
+                Ok(c_path) => Ok(c_path),
+                Err(err) => Err(format!("invalid dir path: '{}': {}", str_path, err))
+            },
+        None => Err(format!("invalid dir path: '{:?}'", path))
+    }
+}
 
-pub fn rotate(dir: &str, now: Ts) -> Result<()> {
-    let c_dir = match std::ffi::CString::new(dir.as_bytes()) {
-        Ok(val) => val,
-        Err(err) => return Err(format!("invalid dir path: '{}': {}", dir, err)),
-    };
 
+pub fn rotate(dir: &Path, now: Ts) -> Result<()> {
+    let c_dir = path_to_c_str(dir)?;
     let ret = unsafe { ffi::rill_rotate(c_dir.as_ptr(), now) };
-    if !ret { return Err(format!("error occured while rotating '{}'", dir)) };
+    if !ret { return Err(format!("error occured while rotating '{:?}'", dir)) };
     return Ok(())
 }
 
 pub struct Acc { acc: *mut ffi::rill_acc }
 
 impl Acc {
-    pub fn new(dir: &str, cap: usize) -> Result<Acc> {
-        let c_dir = match std::ffi::CString::new(dir.as_bytes()) {
-            Ok(val) => val,
-            Err(err) => return Err(format!("invalid dir path: '{}': {}", dir, err)),
-        };
-
+    pub fn new(dir: &Path, cap: usize) -> Result<Acc> {
+        let c_dir = path_to_c_str(dir)?;
         let acc = unsafe { ffi::rill_acc_open(c_dir.as_ptr(), cap) };
-        if acc.is_null() { return Err(format!("unable to open acc '{}'", dir)) }
+        if acc.is_null() { return Err(format!("unable to open acc '{:?}'", dir)) }
         Ok(Acc{acc: acc})
     }
 
@@ -114,14 +121,10 @@ impl Drop for Acc {
 pub struct Query { query: *mut ffi::rill_query }
 
 impl Query {
-    pub fn new(dir: &str) -> Result<Query> {
-        let c_dir = match std::ffi::CString::new(dir.as_bytes()) {
-            Ok(val) => val,
-            Err(err) => return Err(format!("invalid dir path: '{}': {}", dir, err)),
-        };
-
+    pub fn new(dir: &Path) -> Result<Query> {
+        let c_dir = path_to_c_str(dir)?;
         let query = unsafe { ffi::rill_query_open(c_dir.as_ptr()) };
-        if query.is_null() { return Err(format!("unable to open query '{}'", dir)) }
+        if query.is_null() { return Err(format!("unable to open query '{:?}'", dir)) }
         Ok(Query{query: query})
     }
 
@@ -160,7 +163,7 @@ impl Drop for Query {
 
 #[test]
 fn test_rotate_query() {
-    let dir = "/tmp/rill-rs.test";
+    let dir = Path::new("/tmp/rill-rs.test");
     let _ = std::fs::remove_dir_all(dir);
 
     {
