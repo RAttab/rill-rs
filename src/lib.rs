@@ -163,7 +163,7 @@ impl Drop for Query {
 
 #[test]
 fn test_rotate_query() {
-    let dir = Path::new("/tmp/rill-rs.test");
+    let dir = Path::new("/tmp/rill-rs.rotate.test");
     let _ = std::fs::remove_dir_all(dir);
 
     {
@@ -213,4 +213,29 @@ fn test_rotate_query() {
         assert_eq!(pairs.len(), 1);
         assert_eq!(*pairs.get(0), KV{key: 1, val: 20});
     }
+}
+
+pub struct Store { }
+
+impl Store {
+    pub fn write(dir: &Path, ts: Ts, quant: usize, pairs: &Pairs) -> Result<()> {
+        let c_dir = path_to_c_str(dir)?;
+        let ret = unsafe {ffi::rill_store_write(c_dir.as_ptr(), ts, quant, pairs.pairs) };
+        if !ret { return Err(format!("unable to write store '{:?}'", dir)) }
+        Ok(())
+    }
+}
+
+#[test]
+fn test_store() {
+    let dir = Path::new("/tmp/rill-rs.store.test");
+    let _ = std::fs::remove_dir_all(dir);
+
+    let mut pairs = Pairs::new(10).unwrap();
+    pairs.push(2, 10).unwrap();
+    pairs.push(3, 30).unwrap();
+    pairs.push(2, 30).unwrap();
+    pairs.push(1, 10).unwrap();
+    pairs.push(2, 20).unwrap();
+    Store::write(dir, 100, 0, &pairs).unwrap();
 }
