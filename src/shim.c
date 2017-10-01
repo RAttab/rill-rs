@@ -1,9 +1,6 @@
 /* shim.c
    Rémi Attab (remi.attab@gmail.com), 14 Sep 2017
    FreeBSD-style copyright and disclaimer apply
-
-   Rust doesn't really handle flexible array members so this shim helps to
-   bridge that gap.
 */
 
 #include "rill.h"
@@ -12,8 +9,21 @@
 
 
 // -----------------------------------------------------------------------------
+// error
+// -----------------------------------------------------------------------------
+// Thread locals are a nightly feature so shim it for now.
+
+struct rill_error *rill_errno_thread()
+{
+    return &rill_errno;
+};
+
+// -----------------------------------------------------------------------------
 // pairs
 // -----------------------------------------------------------------------------
+// Rust doesn't really handle flexible array members so this shim helps to
+// bridge that gap.
+
 
 size_t rill_pairs_cap(struct rill_pairs *pairs)
 {

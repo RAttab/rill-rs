@@ -18,6 +18,9 @@ pub struct rill_kv {
 }
 
 #[allow(non_camel_case_types)]
+pub enum rill_error {}
+
+#[allow(non_camel_case_types)]
 pub enum rill_pairs {}
 
 #[allow(non_camel_case_types)]
@@ -29,12 +32,15 @@ pub enum rill_query {}
 #[link(name = "rill")]
 #[allow(non_camel_case_types)]
 extern "C" {
+    pub fn rill_errno_thread() -> *const rill_error; // shim.c
+    pub fn rill_strerror(err: *const rill_error, dst: *mut libc::c_char, len: usize) -> usize;
+
     pub fn rill_pairs_new(cap: libc::size_t) -> *mut rill_pairs;
     pub fn rill_pairs_free(pairs: *mut rill_pairs);
     pub fn rill_pairs_clear(pairs: *mut rill_pairs);
-    pub fn rill_pairs_cap(pairs: *const rill_pairs) -> libc::size_t;
-    pub fn rill_pairs_len(pairs: *const rill_pairs) -> libc::size_t;
-    pub fn rill_pairs_get(pairs: *const rill_pairs, index: libc::size_t) -> *const rill_kv;
+    pub fn rill_pairs_cap(pairs: *const rill_pairs) -> libc::size_t; // shim.c
+    pub fn rill_pairs_len(pairs: *const rill_pairs) -> libc::size_t; // shim.c
+    pub fn rill_pairs_get(pairs: *const rill_pairs, index: libc::size_t) -> *const rill_kv; //shim.c
     pub fn rill_pairs_push(
         pairs: *mut rill_pairs, key: rill_key_t, val: rill_val_t) -> *mut rill_pairs;
     pub fn rill_pairs_compact(pairs: *mut rill_pairs);

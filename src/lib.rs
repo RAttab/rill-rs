@@ -11,16 +11,34 @@ pub type Key = ffi::rill_key_t;
 pub type Val = ffi::rill_val_t;
 pub type KV = ffi::rill_kv;
 
+// This function is kind-of insane. I really hope there's an easier
+// way to do this...
+fn err<T>() -> Result<T> {
+    let err = unsafe{ ffi::rill_errno_thread() };
+
+    let mut buf: [u8; 1024] = [0; 1024];
+    let len = unsafe{
+        let ptr = buf.as_mut_ptr() as *mut libc::c_char;
+        let len = ffi::rill_strerror(err, ptr, buf.len());
+        if len >= buf.len() { buf.len() } else { len + 1 }
+    };
+
+    match std::ffi::CStr::from_bytes_with_nul(&buf[0..len]) {
+        Err(err) => Err(format!("invalid error string: {}", err)),
+        Ok(msg) => match msg.to_str() {
+            Err(err) => Err(format!("invalid error string: {}", err)),
+            Ok(msg) =>Err(String::from(msg)),
+        }
+    }
+}
+
 // \todo Need to add iterator support.
 pub struct Pairs { pairs: *mut ffi::rill_pairs }
 
 impl Pairs {
-    pub fn new(cap: usize) -> Result<Pairs> {
-        unsafe {
-            let ptr = ffi::rill_pairs_new(cap);
-            if ptr.is_null() { return Err("unable to allocate pairs".to_string()); }
-            Ok(Pairs{ pairs: ptr })
-        }
+    pub fn with_capacity(cap: usize) -> Result<Pairs> {
+        let ptr = unsafe { ffi::rill_pairs_new(cap) };
+        return if !ptr.is_null() { Ok(Pairs{ pairs: ptr }) } else { err() }
     }
 
     pub fn clear(&mut self) {
@@ -40,12 +58,10 @@ impl Pairs {
     }
 
     pub fn push(&mut self, key: Key, val: Val) -> Result<()> {
-        unsafe {
-            let result = ffi::rill_pairs_push(self.pairs, key, val);
-            if result.is_null() { return Err("unable to push to pairs".to_string()); }
-            self.pairs = result;
-        }
-        return Ok(())
+        let result = unsafe { ffi::rill_pairs_push(self.pairs, key, val) };
+        if result.is_null() { return err() };
+        self.pairs = result;
+        Ok(())
     }
 
     pub fn compact(&mut self) {
@@ -61,7 +77,7 @@ impl Drop for Pairs {
 
 #[test]
 fn test_pairs() {
-    let mut pairs = Pairs::new(1).unwrap();
+    let mut pairs = Pairs::with_capacity(1).unwrap();
 
     pairs.push(10, 20).unwrap();
     pairs.push(20, 10).unwrap();
@@ -79,12 +95,11 @@ fn test_pairs() {
 // conversions are redundant and just make things annoying to write.
 fn path_to_c_str(path: &Path) -> Result<std::ffi::CString> {
     match path.to_str() {
-        Some(str_path) =>
-            match std::ffi::CString::new(str_path.as_bytes()) {
-                Ok(c_path) => Ok(c_path),
-                Err(err) => Err(format!("invalid dir path: '{}': {}", str_path, err))
-            },
-        None => Err(format!("invalid dir path: '{:?}'", path))
+        None => Err(format!("invalid dir path: '{:?}'", path)),
+        Some(str_path) => match std::ffi::CString::new(str_path.as_bytes()) {
+            Err(err) => Err(format!("invalid dir path: '{}': {}", str_path, err)),
+            Ok(c_path) => Ok(c_path),
+        },
     }
 }
 
@@ -92,8 +107,7 @@ fn path_to_c_str(path: &Path) -> Result<std::ffi::CString> {
 pub fn rotate(dir: &Path, now: Ts) -> Result<()> {
     let c_dir = path_to_c_str(dir)?;
     let ret = unsafe { ffi::rill_rotate(c_dir.as_ptr(), now) };
-    if !ret { return Err(format!("error occured while rotating '{:?}'", dir)) };
-    return Ok(())
+    return if ret { Ok(()) } else{ err() }
 }
 
 pub struct Acc { acc: *mut ffi::rill_acc }
@@ -102,8 +116,7 @@ impl Acc {
     pub fn new(dir: &Path, cap: usize) -> Result<Acc> {
         let c_dir = path_to_c_str(dir)?;
         let acc = unsafe { ffi::rill_acc_open(c_dir.as_ptr(), cap) };
-        if acc.is_null() { return Err(format!("unable to open acc '{:?}'", dir)) }
-        Ok(Acc{acc: acc})
+        return if !acc.is_null() { Ok(Acc{acc: acc})} else { err() }
     }
 
     pub fn ingest(&mut self, key: Key, val: Val) {
@@ -124,8 +137,7 @@ impl Query {
     pub fn new(dir: &Path) -> Result<Query> {
         let c_dir = path_to_c_str(dir)?;
         let query = unsafe { ffi::rill_query_open(c_dir.as_ptr()) };
-        if query.is_null() { return Err(format!("unable to open query '{:?}'", dir)) }
-        Ok(Query{query: query})
+        return if !query.is_null() { Ok(Query{query: query}) } else { err() }
     }
 
     // We pass in a &mut Pairs instead of returning as it allows to
@@ -135,7 +147,7 @@ impl Query {
         let result = unsafe {
             ffi::rill_query_key(self.query, keys.as_ptr(), keys.len(), pairs.pairs)
         };
-        if result.is_null() { return Err(format!("unable to query keys: {:?}", keys)); }
+        if result.is_null() { return err(); }
 
         pairs.pairs = result;
         Ok(())
@@ -148,7 +160,7 @@ impl Query {
         let result = unsafe {
             ffi::rill_query_val(self.query, vals.as_ptr(), vals.len(), pairs.pairs)
         };
-        if result.is_null() { return Err(format!("unable to query vals: {:?}", vals)); }
+        if result.is_null() { return err(); }
 
         pairs.pairs = result;
         Ok(())
@@ -185,7 +197,7 @@ fn test_rotate_query() {
 
     let query = Query::new(dir).unwrap();
     {
-        let mut pairs = Pairs::new(1).unwrap();
+        let mut pairs = Pairs::with_capacity(1).unwrap();
         query.keys(&[1], &mut pairs).unwrap();
         assert_eq!(pairs.len(), 2);
         assert_eq!(*pairs.get(0), KV{key: 1, val: 10});
@@ -193,14 +205,14 @@ fn test_rotate_query() {
     }
 
     {
-        let mut pairs = Pairs::new(1).unwrap();
+        let mut pairs = Pairs::with_capacity(1).unwrap();
         query.keys(&[2, 3], &mut pairs).unwrap();
         assert_eq!(pairs.len(), 1);
         assert_eq!(*pairs.get(0), KV{key: 2, val: 10});
     }
 
     {
-        let mut pairs = Pairs::new(1).unwrap();
+        let mut pairs = Pairs::with_capacity(1).unwrap();
         query.vals(&[10], &mut pairs).unwrap();
         assert_eq!(pairs.len(), 2);
         assert_eq!(*pairs.get(0), KV{key: 1, val: 10});
@@ -208,7 +220,7 @@ fn test_rotate_query() {
     }
 
     {
-        let mut pairs = Pairs::new(1).unwrap();
+        let mut pairs = Pairs::with_capacity(1).unwrap();
         query.vals(&[20, 30], &mut pairs).unwrap();
         assert_eq!(pairs.len(), 1);
         assert_eq!(*pairs.get(0), KV{key: 1, val: 20});
@@ -221,21 +233,20 @@ impl Store {
     pub fn write(dir: &Path, ts: Ts, quant: usize, pairs: &Pairs) -> Result<()> {
         let c_dir = path_to_c_str(dir)?;
         let ret = unsafe {ffi::rill_store_write(c_dir.as_ptr(), ts, quant, pairs.pairs) };
-        if !ret { return Err(format!("unable to write store '{:?}'", dir)) }
-        Ok(())
+        return if ret { Ok(()) } else { err()  }
     }
 }
 
 #[test]
 fn test_store() {
-    let dir = Path::new("/tmp/rill-rs.store.test");
-    let _ = std::fs::remove_dir_all(dir);
+    let file = Path::new("/tmp/rill-rs.store.test");
+    let _ = std::fs::remove_file(file);
 
-    let mut pairs = Pairs::new(10).unwrap();
+    let mut pairs = Pairs::with_capacity(10).unwrap();
     pairs.push(2, 10).unwrap();
     pairs.push(3, 30).unwrap();
     pairs.push(2, 30).unwrap();
     pairs.push(1, 10).unwrap();
     pairs.push(2, 20).unwrap();
-    Store::write(dir, 100, 0, &pairs).unwrap();
+    Store::write(file, 100, 0, &pairs).unwrap();
 }
