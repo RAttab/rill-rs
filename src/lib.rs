@@ -140,12 +140,19 @@ impl Query {
         return if !query.is_null() { Ok(Query{query: query}) } else { err() }
     }
 
+    pub fn key(&self, key: Key, pairs: &mut Pairs) -> Result<()> {
+        let result = unsafe { ffi::rill_query_key(self.query, key, pairs.pairs) };
+        if result.is_null() { return err(); }
+        pairs.pairs = result;
+        Ok(())
+    }
+
     // We pass in a &mut Pairs instead of returning as it allows to
     // pre-size the object size and to reuse the object across
     // multiple function calls.
     pub fn keys(&self, keys: &[Key], pairs: &mut Pairs) -> Result<()> {
         let result = unsafe {
-            ffi::rill_query_key(self.query, keys.as_ptr(), keys.len(), pairs.pairs)
+            ffi::rill_query_keys(self.query, keys.as_ptr(), keys.len(), pairs.pairs)
         };
         if result.is_null() { return err(); }
 
@@ -158,7 +165,7 @@ impl Query {
     // and not worrying too much about performance.
     pub fn vals(&self, vals: &[Val], pairs: &mut Pairs) -> Result<()> {
         let result = unsafe {
-            ffi::rill_query_val(self.query, vals.as_ptr(), vals.len(), pairs.pairs)
+            ffi::rill_query_vals(self.query, vals.as_ptr(), vals.len(), pairs.pairs)
         };
         if result.is_null() { return err(); }
 
@@ -196,6 +203,14 @@ fn test_rotate_query() {
     }
 
     let query = Query::new(dir).unwrap();
+
+    {
+        let mut pairs = Pairs::with_capacity(1).unwrap();
+        query.key(2, &mut pairs).unwrap();
+        assert_eq!(pairs.len(), 1);
+        assert_eq!(*pairs.get(0), KV{key: 2, val: 10});
+    }
+
     {
         let mut pairs = Pairs::with_capacity(1).unwrap();
         query.keys(&[1], &mut pairs).unwrap();

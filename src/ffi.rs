@@ -54,10 +54,12 @@ extern "C" {
     pub fn rill_query_open(dir: *const libc::c_char) -> *mut rill_query;
     pub fn rill_query_close(query: *mut rill_query);
     pub fn rill_query_key(
+        query: *const rill_query, key: rill_key_t, out: *mut rill_pairs) -> *mut rill_pairs;
+    pub fn rill_query_keys(
         query: *const rill_query,
         keys: *const rill_key_t, len: libc::size_t,
         out: *mut rill_pairs) -> *mut rill_pairs;
-    pub fn rill_query_val(
+    pub fn rill_query_vals(
         query: *const rill_query,
         vals: *const rill_val_t, len: libc::size_t,
         out: *mut rill_pairs) -> *mut rill_pairs;
