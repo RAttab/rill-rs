@@ -38,7 +38,7 @@ pub struct Pairs { pairs: *mut ffi::rill_pairs }
 impl Pairs {
     pub fn with_capacity(cap: usize) -> Result<Pairs> {
         let ptr = unsafe { ffi::rill_pairs_new(cap) };
-        return if !ptr.is_null() { Ok(Pairs{ pairs: ptr }) } else { err() }
+        if !ptr.is_null() { Ok(Pairs{ pairs: ptr }) } else { err() }
     }
 
     pub fn clear(&mut self) {
@@ -107,7 +107,7 @@ fn path_to_c_str(path: &Path) -> Result<std::ffi::CString> {
 pub fn rotate(dir: &Path, now: Ts) -> Result<()> {
     let c_dir = path_to_c_str(dir)?;
     let ret = unsafe { ffi::rill_rotate(c_dir.as_ptr(), now) };
-    return if ret { Ok(()) } else{ err() }
+    if ret { Ok(()) } else{ err() }
 }
 
 pub struct Acc { acc: *mut ffi::rill_acc }
@@ -116,7 +116,7 @@ impl Acc {
     pub fn new(dir: &Path, cap: usize) -> Result<Acc> {
         let c_dir = path_to_c_str(dir)?;
         let acc = unsafe { ffi::rill_acc_open(c_dir.as_ptr(), cap) };
-        return if !acc.is_null() { Ok(Acc{acc: acc})} else { err() }
+        if !acc.is_null() { Ok(Acc{acc: acc})} else { err() }
     }
 
     pub fn ingest(&mut self, key: Key, val: Val) {
@@ -130,14 +130,13 @@ impl Drop for Acc {
     }
 }
 
-
 pub struct Query { query: *mut ffi::rill_query }
 
 impl Query {
     pub fn new(dir: &Path) -> Result<Query> {
         let c_dir = path_to_c_str(dir)?;
         let query = unsafe { ffi::rill_query_open(c_dir.as_ptr()) };
-        return if !query.is_null() { Ok(Query{query: query}) } else { err() }
+        if !query.is_null() { Ok(Query{query: query}) } else { err() }
     }
 
     pub fn key(&self, key: Key, pairs: &mut Pairs) -> Result<()> {
@@ -242,26 +241,146 @@ fn test_rotate_query() {
     }
 }
 
-pub struct Store { }
+pub struct Store {
+    store: *mut ffi::rill_store
+}
 
 impl Store {
+    pub fn open(dir: &Path) -> Result<Store> {
+        let c_dir = path_to_c_str(dir)?;
+        let store = unsafe { ffi::rill_store_open(c_dir.as_ptr()) };
+        if !store.is_null() { Ok(Store{store: store}) } else { err() }
+    }
+
     pub fn write(dir: &Path, ts: Ts, quant: usize, pairs: &Pairs) -> Result<()> {
         let c_dir = path_to_c_str(dir)?;
-        let ret = unsafe {ffi::rill_store_write(c_dir.as_ptr(), ts, quant, pairs.pairs) };
-        return if ret { Ok(()) } else { err()  }
+        let ret = unsafe { ffi::rill_store_write(c_dir.as_ptr(), ts, quant, pairs.pairs) };
+        if ret { Ok(()) } else { err() }
+    }
+
+    pub fn merge(out: &Path, ts: Ts, quant: usize, stores: &[Store]) -> Result<()> {
+        let c_out = path_to_c_str(out)?;
+        let c_list: Vec<*const ffi::rill_store> =
+            stores.iter().map(|s| s.store as *const ffi::rill_store).collect();
+
+        let ret = unsafe {
+            ffi::rill_store_merge(c_out.as_ptr(), ts, quant, c_list.as_ptr(), c_list.len())
+        };
+        if ret { Ok(()) } else { err() }
+    }
+
+    pub fn rm(&mut self) -> Result<()> {
+        let ret = unsafe { ffi::rill_store_rm(self.store) };
+        if ret { self.store = std::ptr::null_mut(); Ok(()) } else { err() }
+    }
+
+    pub fn key(&self, key: Key, pairs: &mut Pairs) -> Result<()> {
+        let result = unsafe { ffi::rill_store_query_key(self.store, key, pairs.pairs) };
+        if result.is_null() { return err(); }
+        pairs.pairs = result;
+        Ok(())
+    }
+
+    // We pass in a &mut Pairs instead of returning as it allows to
+    // pre-size the object size and to reuse the object across
+    // multiple function calls.
+    pub fn keys(&self, keys: &[Key], pairs: &mut Pairs) -> Result<()> {
+        let result = unsafe {
+            ffi::rill_store_scan_keys(self.store, keys.as_ptr(), keys.len(), pairs.pairs)
+        };
+        if result.is_null() { return err(); }
+
+        pairs.pairs = result;
+        Ok(())
+    }
+
+    // \todo We only ever expect one val store during the lifetime of
+    // the process so it's worth considering just returning a pairs
+    // and not worrying too much about performance.
+    pub fn vals(&self, vals: &[Val], pairs: &mut Pairs) -> Result<()> {
+        let result = unsafe {
+            ffi::rill_store_scan_vals(self.store, vals.as_ptr(), vals.len(), pairs.pairs)
+        };
+        if result.is_null() { return err(); }
+
+        pairs.pairs = result;
+        Ok(())
+    }
+}
+
+impl Drop for Store {
+    fn drop(&mut self) {
+        if !self.store.is_null() {
+            unsafe { ffi::rill_store_close(self.store) }
+        }
     }
 }
 
 #[test]
 fn test_store() {
-    let file = Path::new("/tmp/rill-rs.store.test");
-    let _ = std::fs::remove_file(file);
+    let file_1 = Path::new("/tmp/rill-rs.store.test-1");
+    {
+        let _ = std::fs::remove_file(file_1);
+        let mut pairs = Pairs::with_capacity(10).unwrap();
+        pairs.push(2, 10).unwrap();
+        pairs.push(3, 30).unwrap();
+        pairs.push(2, 30).unwrap();
+        pairs.push(1, 10).unwrap();
+        pairs.push(2, 20).unwrap();
+        Store::write(file_1, 100, 0, &pairs).unwrap();
+    }
 
-    let mut pairs = Pairs::with_capacity(10).unwrap();
-    pairs.push(2, 10).unwrap();
-    pairs.push(3, 30).unwrap();
-    pairs.push(2, 30).unwrap();
-    pairs.push(1, 10).unwrap();
-    pairs.push(2, 20).unwrap();
-    Store::write(file, 100, 0, &pairs).unwrap();
+    let file_2 = Path::new("/tmp/rill-rs.store.test-2");
+    {
+        let _ = std::fs::remove_file(file_2);
+        let mut pairs = Pairs::with_capacity(10).unwrap();
+        pairs.push(2, 10).unwrap();
+        pairs.push(3, 30).unwrap();
+        pairs.push(4, 30).unwrap();
+        pairs.push(2, 10).unwrap();
+        pairs.push(3, 20).unwrap();
+        Store::write(file_2, 100, 0, &pairs).unwrap();
+    }
+
+    let file_merge = Path::new("/tmp/rill-rs.store.test-merge");
+    {
+        let _ = std::fs::remove_file(file_merge);
+        let mut to_merge = vec![
+            Store::open(file_1).unwrap(),
+            Store::open(file_2).unwrap()
+        ];
+        Store::merge(file_merge, 123, 60, to_merge.as_slice()).unwrap();
+        to_merge[0].rm().unwrap();
+        to_merge[1].rm().unwrap();
+    }
+
+    assert!(Store::open(file_1).is_err());
+    assert!(Store::open(file_2).is_err());
+
+    let store = Store::open(file_merge).unwrap();
+
+    {
+        let mut pairs = Pairs::with_capacity(1).unwrap();
+        store.key(1, &mut pairs).unwrap();
+        assert_eq!(pairs.len(), 1);
+        assert_eq!(*pairs.get(0), KV{key: 1, val: 10});
+
+        pairs.clear();
+        store.key(2, &mut pairs).unwrap();
+        assert_eq!(pairs.len(), 3);
+        assert_eq!(*pairs.get(0), KV{key: 2, val: 10});
+        assert_eq!(*pairs.get(1), KV{key: 2, val: 20});
+        assert_eq!(*pairs.get(2), KV{key: 2, val: 30});
+
+        pairs.clear();
+        store.key(3, &mut pairs).unwrap();
+        assert_eq!(pairs.len(), 2);
+        assert_eq!(*pairs.get(0), KV{key: 3, val: 20});
+        assert_eq!(*pairs.get(1), KV{key: 3, val: 30});
+
+        pairs.clear();
+        store.key(4, &mut pairs).unwrap();
+        assert_eq!(pairs.len(), 1);
+        assert_eq!(*pairs.get(0), KV{key: 4, val: 30});
+    }
 }

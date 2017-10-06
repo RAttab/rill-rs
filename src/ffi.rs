@@ -29,6 +29,9 @@ pub enum rill_acc {}
 #[allow(non_camel_case_types)]
 pub enum rill_query {}
 
+#[allow(non_camel_case_types)]
+pub enum rill_store {}
+
 #[link(name = "rill")]
 #[allow(non_camel_case_types)]
 extern "C" {
@@ -64,6 +67,23 @@ extern "C" {
         vals: *const rill_val_t, len: libc::size_t,
         out: *mut rill_pairs) -> *mut rill_pairs;
 
+    pub fn rill_store_open(file: *const libc::c_char) -> *mut rill_store;
+    pub fn rill_store_close(store: *mut rill_store);
+    pub fn rill_store_rm(store: *mut rill_store) -> bool;
+    pub fn rill_store_query_key(
+        store: *const rill_store, key: rill_key_t, out: *mut rill_pairs) -> *mut rill_pairs;
+    pub fn rill_store_scan_keys(
+        store: *const rill_store,
+        keys: *const rill_key_t, len: libc::size_t,
+        out: *mut rill_pairs) -> *mut rill_pairs;
+    pub fn rill_store_scan_vals(
+        store: *const rill_store,
+        vals: *const rill_val_t, len: libc::size_t,
+        out: *mut rill_pairs) -> *mut rill_pairs;
+    pub fn rill_store_merge(
+        file: *const libc::c_char,
+        ts: rill_ts_t, quant: usize,
+        list: *const *const rill_store, len: libc::size_t) -> bool;
     pub fn rill_store_write(
         file: *const libc::c_char,
         ts: rill_ts_t, quant: usize,
