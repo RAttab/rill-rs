@@ -2,7 +2,7 @@
 name = "rill"
 version = "0.1.0"
 authors = ["Remi Attab <remi.attab@gmail.com>"]
-license = "2-Clause BSD"
+license = "BSD-2-Clause"
 description = "Rust bindings for rill"
 repository = "https://github.com/RAttab/rill-rs.git"
 
