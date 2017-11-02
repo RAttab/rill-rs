@@ -155,6 +155,11 @@ impl Query {
         pairs.pairs = result;
         Ok(())
     }
+
+    pub fn all(&self) -> Result<Pairs> {
+        let ptr = unsafe { ffi::rill_query_all(self.query)};
+        if !ptr.is_null() { Ok(Pairs{ pairs: ptr }) } else { err() }
+    }
 }
 
 impl Drop for Query {
@@ -239,7 +244,9 @@ impl Drop for Store {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
 
+    #[test]
     fn test_pairs() {
         let mut pairs = Pairs::with_capacity(1).unwrap();
 
@@ -250,12 +257,13 @@ mod tests {
         pairs.compact();
 
         for i in 0..pairs.len() {
-            let kv = pairs.get(i);
+            let kv = pairs.get(i).unwrap();
             println!("kv[{}]: key={}, len={}", i, kv.key, kv.val);
         }
     }
 
 
+    #[test]
     fn test_rotate_query() {
         let dir = Path::new("/tmp/rill-rs.rotate.test");
         let _ = std::fs::remove_dir_all(dir);
@@ -283,41 +291,50 @@ mod tests {
             let mut pairs = Pairs::with_capacity(1).unwrap();
             query.key(2, &mut pairs).unwrap();
             assert_eq!(pairs.len(), 1);
-            assert_eq!(*pairs.get(0), KV{key: 2, val: 10});
+            assert_eq!(pairs.get(0).unwrap(), KV{key: 2, val: 10});
         }
 
         {
             let mut pairs = Pairs::with_capacity(1).unwrap();
             query.keys(&[1], &mut pairs).unwrap();
             assert_eq!(pairs.len(), 2);
-            assert_eq!(*pairs.get(0), KV{key: 1, val: 10});
-            assert_eq!(*pairs.get(1), KV{key: 1, val: 20});
+            assert_eq!(pairs.get(0).unwrap(), KV{key: 1, val: 10});
+            assert_eq!(pairs.get(1).unwrap(), KV{key: 1, val: 20});
         }
 
         {
             let mut pairs = Pairs::with_capacity(1).unwrap();
             query.keys(&[2, 3], &mut pairs).unwrap();
             assert_eq!(pairs.len(), 1);
-            assert_eq!(*pairs.get(0), KV{key: 2, val: 10});
+            assert_eq!(pairs.get(0).unwrap(), KV{key: 2, val: 10});
         }
 
         {
             let mut pairs = Pairs::with_capacity(1).unwrap();
             query.vals(&[10], &mut pairs).unwrap();
             assert_eq!(pairs.len(), 2);
-            assert_eq!(*pairs.get(0), KV{key: 1, val: 10});
-            assert_eq!(*pairs.get(1), KV{key: 2, val: 10});
+            assert_eq!(pairs.get(0).unwrap(), KV{key: 1, val: 10});
+            assert_eq!(pairs.get(1).unwrap(), KV{key: 2, val: 10});
         }
 
         {
             let mut pairs = Pairs::with_capacity(1).unwrap();
             query.vals(&[20, 30], &mut pairs).unwrap();
             assert_eq!(pairs.len(), 1);
-            assert_eq!(*pairs.get(0), KV{key: 1, val: 20});
+            assert_eq!(pairs.get(0).unwrap(), KV{key: 1, val: 20});
+        }
+
+        {
+            let pairs = query.all().unwrap();
+            assert_eq!(pairs.len(), 3);
+            assert_eq!(pairs.get(0).unwrap(), KV{key: 1, val: 10});
+            assert_eq!(pairs.get(1).unwrap(), KV{key: 1, val: 20});
+            assert_eq!(pairs.get(2).unwrap(), KV{key: 2, val: 10});
         }
     }
 
 
+    #[test]
     fn test_store() {
         let file_1 = Path::new("/tmp/rill-rs.store.test-1");
         {
@@ -364,25 +381,25 @@ mod tests {
             let mut pairs = Pairs::with_capacity(1).unwrap();
             store.key(1, &mut pairs).unwrap();
             assert_eq!(pairs.len(), 1);
-            assert_eq!(*pairs.get(0), KV{key: 1, val: 10});
+            assert_eq!(pairs.get(0).unwrap(), KV{key: 1, val: 10});
 
             pairs.clear();
             store.key(2, &mut pairs).unwrap();
             assert_eq!(pairs.len(), 3);
-            assert_eq!(*pairs.get(0), KV{key: 2, val: 10});
-            assert_eq!(*pairs.get(1), KV{key: 2, val: 20});
-            assert_eq!(*pairs.get(2), KV{key: 2, val: 30});
+            assert_eq!(pairs.get(0).unwrap(), KV{key: 2, val: 10});
+            assert_eq!(pairs.get(1).unwrap(), KV{key: 2, val: 20});
+            assert_eq!(pairs.get(2).unwrap(), KV{key: 2, val: 30});
 
             pairs.clear();
             store.key(3, &mut pairs).unwrap();
             assert_eq!(pairs.len(), 2);
-            assert_eq!(*pairs.get(0), KV{key: 3, val: 20});
-            assert_eq!(*pairs.get(1), KV{key: 3, val: 30});
+            assert_eq!(pairs.get(0).unwrap(), KV{key: 3, val: 20});
+            assert_eq!(pairs.get(1).unwrap(), KV{key: 3, val: 30});
 
             pairs.clear();
             store.key(4, &mut pairs).unwrap();
             assert_eq!(pairs.len(), 1);
-            assert_eq!(*pairs.get(0), KV{key: 4, val: 30});
+            assert_eq!(pairs.get(0).unwrap(), KV{key: 4, val: 30});
         }
     }
 }
