@@ -5,7 +5,8 @@ mod ffi;
 use std::path::Path;
 use std::os::unix::ffi::OsStrExt;
 
-pub type Result<T> = std::result::Result<T, String>;
+pub type Error = String;
+pub type Result<T> = std::result::Result<T, Error>;
 
 pub type Ts = ffi::rill_ts_t;
 pub type Key = ffi::rill_key_t;
