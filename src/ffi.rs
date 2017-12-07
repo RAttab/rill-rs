@@ -37,6 +37,7 @@ extern "C" {
     pub fn rill_acc_open(dir: *const libc::c_char, cap: libc::size_t) -> *mut rill_acc;
     pub fn rill_acc_close(acc: *mut rill_acc);
     pub fn rill_acc_ingest(acc: *mut rill_acc, key: rill_key_t, val: rill_val_t);
+    pub fn rill_acc_write(acc: *mut rill_acc, file: *const libc::c_char, now: rill_ts_t) -> bool;
 
     pub fn rill_rotate(dir: *const libc::c_char, now: rill_ts_t) -> bool;
 

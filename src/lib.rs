@@ -107,6 +107,12 @@ impl Acc {
     pub fn ingest(&mut self, key: Key, val: Val) {
         unsafe { ffi::rill_acc_ingest(self.acc, key, val) }
     }
+
+    pub fn write(&mut self, file: &Path, ts: Ts) -> Result<()> {
+        let c_file = path_to_c_str(file)?;
+        let ret = unsafe { ffi::rill_acc_write(self.acc, c_file.as_ptr(), ts) };
+        if ret { Ok(()) } else { err() }
+    }
 }
 
 impl Drop for Acc {
@@ -246,6 +252,7 @@ impl Drop for Store {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
 
     #[test]
     fn test_pairs() {
@@ -269,18 +276,28 @@ mod tests {
         let dir = Path::new("/tmp/rill-rs.rotate.test");
         let _ = std::fs::remove_dir_all(dir);
 
+        let acc_file = |name| {
+            let mut pbuf = PathBuf::new();
+            pbuf.push(dir);
+            pbuf.push(format!("{}.rill", name));
+            pbuf
+        };
+
         {
             let mut acc = Acc::new(dir, 2).unwrap();
 
             acc.ingest(1, 10);
+            acc.write(acc_file("1").as_path(), 1 * 60 * 60).unwrap();
             rotate(dir, 1 * 60 * 60).unwrap();
 
             acc.ingest(2, 10);
             acc.ingest(1, 10);
+            acc.write(acc_file("2").as_path(), 2 * 60 * 60).unwrap();
             rotate(dir, 2 * 60 * 60).unwrap();
 
             acc.ingest(2, 10);
             acc.ingest(1, 20);
+            acc.write(acc_file("3").as_path(), 3 * 60 * 60).unwrap();
             rotate(dir, 3 * 60 * 60).unwrap();
 
             acc.ingest(1, 30);
