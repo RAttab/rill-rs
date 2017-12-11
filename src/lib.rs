@@ -125,6 +125,8 @@ impl Drop for Acc {
     }
 }
 
+unsafe impl Send for Acc {}
+
 pub struct Query { query: *mut ffi::rill_query }
 
 impl Query {
