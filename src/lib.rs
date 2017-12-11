@@ -104,6 +104,10 @@ impl Acc {
         if !acc.is_null() { Ok(Acc{acc: acc})} else { err() }
     }
 
+    pub fn open(dir: &Path) -> Result<Acc> {
+        Acc::new(dir, ffi::RILL_ACC_READ_ONLY)
+    }
+
     pub fn ingest(&mut self, key: Key, val: Val) {
         unsafe { ffi::rill_acc_ingest(self.acc, key, val) }
     }

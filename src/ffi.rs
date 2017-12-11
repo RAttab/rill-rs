@@ -19,6 +19,8 @@ pub enum rill_acc {}
 pub enum rill_query {}
 pub enum rill_store {}
 
+pub const RILL_ACC_READ_ONLY: usize = 0;
+
 #[link(name = "rill")]
 extern "C" {
     pub fn rill_errno_thread() -> *const rill_error; // shim.c
