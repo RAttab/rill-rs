@@ -1,6 +1,6 @@
 [package]
 name = "rill"
-version = "0.2.3"
+version = "0.3.1"
 authors = ["Remi Attab <remi.attab@gmail.com>"]
 license = "BSD-2-Clause"
 description = "Rust bindings for rill"

@@ -12,6 +12,10 @@ pub type Ts = ffi::rill_ts_t;
 pub type Key = ffi::rill_key_t;
 pub type Val = ffi::rill_val_t;
 pub type KV = ffi::rill_kv;
+pub type Col = ffi::rill_col;
+
+pub const COL_A: Col = ffi::rill_col::a;
+pub const COL_B: Col = ffi::rill_col::b;
 
 fn err<T>() -> Result<T> {
     let err = unsafe{ ffi::rill_errno_thread() };
@@ -143,35 +147,16 @@ impl Query {
         Ok(())
     }
 
-    // We pass in a &mut Pairs instead of returning as it allows to
-    // pre-size the object size and to reuse the object across
-    // multiple function calls.
-    pub fn keys(&self, keys: &[Key], pairs: &mut Pairs) -> Result<()> {
-        let result = unsafe {
-            ffi::rill_query_keys(self.query, keys.as_ptr(), keys.len(), pairs.pairs)
-        };
-        if result.is_null() { return err(); }
-
-        pairs.pairs = result;
-        Ok(())
-    }
-
-    // \todo We only ever expect one val query during the lifetime of
-    // the process so it's worth considering just returning a pairs
-    // and not worrying too much about performance.
-    pub fn vals(&self, vals: &[Val], pairs: &mut Pairs) -> Result<()> {
-        let result = unsafe {
-            ffi::rill_query_vals(self.query, vals.as_ptr(), vals.len(), pairs.pairs)
-        };
-        if result.is_null() { return err(); }
-
-        pairs.pairs = result;
-        Ok(())
-    }
-
-    pub fn all(&self) -> Result<Pairs> {
-        let ptr = unsafe { ffi::rill_query_all(self.query)};
+    pub fn all(&self, col: Col) -> Result<Pairs> {
+        let ptr = unsafe { ffi::rill_query_all(self.query, col)};
         if !ptr.is_null() { Ok(Pairs{ pairs: ptr }) } else { err() }
+    }
+
+    pub fn vals(&self, vals: &[Val], pairs: &mut Pairs) -> Result<()> {
+        let result = unsafe { ffi::rill_query_vals(self.query, vals.as_ptr(), vals.len(), pairs.pairs) };
+        if result.is_null() { return err(); }
+        pairs.pairs = result;
+        Ok(())
     }
 }
 
@@ -232,19 +217,6 @@ impl Store {
         pairs.pairs = result;
         Ok(())
     }
-
-    // \todo We only ever expect one val store during the lifetime of
-    // the process so it's worth considering just returning a pairs
-    // and not worrying too much about performance.
-    pub fn vals(&self, vals: &[Val], pairs: &mut Pairs) -> Result<()> {
-        let result = unsafe {
-            ffi::rill_store_scan_vals(self.store, vals.as_ptr(), vals.len(), pairs.pairs)
-        };
-        if result.is_null() { return err(); }
-
-        pairs.pairs = result;
-        Ok(())
-    }
 }
 
 impl Drop for Store {
@@ -280,6 +252,7 @@ mod tests {
     #[test]
     fn test_rotate_query() {
         let dir = Path::new("/tmp/rill-rs.rotate.test");
+
         let _ = std::fs::remove_dir_all(dir);
 
         let acc_file = |name| {
@@ -316,47 +289,72 @@ mod tests {
             query.key(2, &mut pairs).unwrap();
             assert_eq!(pairs.len(), 1);
             assert_eq!(pairs.get(0).unwrap(), KV{key: 2, val: 10});
+
+            let mut inv_pairs = Pairs::with_capacity(1).unwrap();
+            query.vals(&[10], &mut inv_pairs).unwrap();
+            assert_eq!(inv_pairs.len(), 2);
+            assert_eq!(inv_pairs.get(0).unwrap().val, 1);
+            assert_eq!(inv_pairs.get(1).unwrap().val, 2);
         }
 
         {
-            let mut pairs = Pairs::with_capacity(1).unwrap();
-            query.keys(&[1], &mut pairs).unwrap();
-            assert_eq!(pairs.len(), 2);
-            assert_eq!(pairs.get(0).unwrap(), KV{key: 1, val: 10});
-            assert_eq!(pairs.get(1).unwrap(), KV{key: 1, val: 20});
-        }
-
-        {
-            let mut pairs = Pairs::with_capacity(1).unwrap();
-            query.keys(&[2, 3], &mut pairs).unwrap();
-            assert_eq!(pairs.len(), 1);
-            assert_eq!(pairs.get(0).unwrap(), KV{key: 2, val: 10});
-        }
-
-        {
-            let mut pairs = Pairs::with_capacity(1).unwrap();
-            query.vals(&[10], &mut pairs).unwrap();
-            assert_eq!(pairs.len(), 2);
-            assert_eq!(pairs.get(0).unwrap(), KV{key: 1, val: 10});
-            assert_eq!(pairs.get(1).unwrap(), KV{key: 2, val: 10});
-        }
-
-        {
-            let mut pairs = Pairs::with_capacity(1).unwrap();
-            query.vals(&[20, 30], &mut pairs).unwrap();
-            assert_eq!(pairs.len(), 1);
-            assert_eq!(pairs.get(0).unwrap(), KV{key: 1, val: 20});
-        }
-
-        {
-            let pairs = query.all().unwrap();
+            let pairs = query.all(COL_A).unwrap();
             assert_eq!(pairs.len(), 3);
             assert_eq!(pairs.get(0).unwrap(), KV{key: 1, val: 10});
             assert_eq!(pairs.get(1).unwrap(), KV{key: 1, val: 20});
             assert_eq!(pairs.get(2).unwrap(), KV{key: 2, val: 10});
+
+            let inv_pairs = query.all(COL_B).unwrap();
+            assert_eq!(inv_pairs.len(), 3);
+            assert_eq!(inv_pairs.get(0).unwrap(), KV{key: 10, val: 1});
+            assert_eq!(inv_pairs.get(1).unwrap(), KV{key: 10, val: 2});
+            assert_eq!(inv_pairs.get(2).unwrap(), KV{key: 20, val: 1});
         }
+
     }
 
+    #[test]
+    fn test_query_all() {
+        let dir = Path::new("/tmp/rill-rs.query_all.test/");
+        let mut db_path= PathBuf::new();
+        db_path.push(dir);
+        db_path.push("the-db.rill");
+
+        let _ = std::fs::remove_dir_all(dir);
+        std::fs::create_dir(dir).unwrap();
+
+        {
+            let mut pairs = Pairs::with_capacity(10).unwrap();
+            pairs.push(1, 10).unwrap();
+            pairs.push(1, 20).unwrap();
+            pairs.push(1, 30).unwrap();
+            pairs.push(2, 10).unwrap();
+            pairs.push(2, 20).unwrap();
+            Store::write(&db_path, 100, 0, &pairs).unwrap();
+        }
+
+        {
+            let query = Query::new(dir).unwrap();
+            let pairs = query.all(COL_A).unwrap();
+            assert_eq!(pairs.len(), 5);
+            assert_eq!(pairs.get(0).unwrap(), KV{key: 1, val: 10});
+            assert_eq!(pairs.get(1).unwrap(), KV{key: 1, val: 20});
+            assert_eq!(pairs.get(2).unwrap(), KV{key: 1, val: 30});
+            assert_eq!(pairs.get(3).unwrap(), KV{key: 2, val: 10});
+            assert_eq!(pairs.get(4).unwrap(), KV{key: 2, val: 20});
+        }
+
+        {
+            let query = Query::new(dir).unwrap();
+            let pairs = query.all(COL_B).unwrap();
+            assert_eq!(pairs.len(), 5);
+            assert_eq!(pairs.get(0).unwrap(), KV{key: 10, val: 1});
+            assert_eq!(pairs.get(1).unwrap(), KV{key: 10, val: 2});
+            assert_eq!(pairs.get(2).unwrap(), KV{key: 20, val: 1});
+            assert_eq!(pairs.get(3).unwrap(), KV{key: 20, val: 2});
+            assert_eq!(pairs.get(4).unwrap(), KV{key: 30, val: 1});
+        }
+    }
 
     #[test]
     fn test_store() {
