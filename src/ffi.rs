@@ -6,6 +6,14 @@ pub type rill_key_t = u64;
 pub type rill_val_t = u64;
 pub type rill_ts_t = u64;
 
+// These settings are taken directly form the rill codebase. They
+// should be updated in case the originals are ever changed.
+#[repr(C)]
+pub enum rill_col {
+    a = 0,
+    b = 1,
+}
+
 #[repr(C)]
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct rill_kv {
@@ -47,15 +55,9 @@ extern "C" {
     pub fn rill_query_close(query: *mut rill_query);
     pub fn rill_query_key(
         query: *const rill_query, key: rill_key_t, out: *mut rill_pairs) -> *mut rill_pairs;
-    pub fn rill_query_keys(
-        query: *const rill_query,
-        keys: *const rill_key_t, len: libc::size_t,
-        out: *mut rill_pairs) -> *mut rill_pairs;
     pub fn rill_query_vals(
-        query: *const rill_query,
-        vals: *const rill_val_t, len: libc::size_t,
+        query: *const rill_query, vals: *const rill_val_t, len: libc::size_t,
         out: *mut rill_pairs) -> *mut rill_pairs;
-    pub fn rill_query_all(query: *const rill_query) -> *mut rill_pairs;
 
     pub fn rill_store_open(file: *const libc::c_char) -> *mut rill_store;
     pub fn rill_store_close(store: *mut rill_store);
@@ -66,10 +68,7 @@ extern "C" {
         store: *const rill_store,
         keys: *const rill_key_t, len: libc::size_t,
         out: *mut rill_pairs) -> *mut rill_pairs;
-    pub fn rill_store_scan_vals(
-        store: *const rill_store,
-        vals: *const rill_val_t, len: libc::size_t,
-        out: *mut rill_pairs) -> *mut rill_pairs;
+
     pub fn rill_store_merge(
         file: *const libc::c_char,
         ts: rill_ts_t, quant: usize,
@@ -78,4 +77,6 @@ extern "C" {
         file: *const libc::c_char,
         ts: rill_ts_t, quant: usize,
         pairs: *const rill_pairs) -> bool;
+
+    pub fn rill_query_all(query: *const rill_query, col: rill_col) -> *mut rill_pairs;
 }
