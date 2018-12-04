@@ -83,15 +83,14 @@ impl Drop for Pairs {
 
 fn path_to_c_str(path: &Path) -> Result<std::ffi::CString> {
     match std::ffi::CString::new(path.as_os_str().as_bytes()) {
-            Err(err) => Err(format!("invalid dir path: '{:?}': {}", path, err)),
-            Ok(c_path) => Ok(c_path),
+        Err(err) => Err(format!("invalid dir path: '{:?}': {}", path, err)),
+        Ok(c_path) => Ok(c_path),
     }
 }
 
-
-pub fn rotate(dir: &Path, now: Ts) -> Result<()> {
+pub fn rotate(dir: &Path, now: Ts, expiry: Ts) -> Result<()> {
     let c_dir = path_to_c_str(dir)?;
-    let ret = unsafe { ffi::rill_rotate(c_dir.as_ptr(), now) };
+    let ret = unsafe { ffi::rill_rotate(c_dir.as_ptr(), now, expiry) };
     if ret { Ok(()) } else{ err() }
 }
 
@@ -291,20 +290,21 @@ mod tests {
 
         {
             let mut acc = Acc::new(dir, 2).unwrap();
+            let expire_secs = 60 * 60 * 24 * 7 * 52; // 1 year in seconds
 
             acc.ingest(1, 10);
             acc.write(acc_file("1").as_path(), 1 * 60 * 60).unwrap();
-            rotate(dir, 1 * 60 * 60).unwrap();
+            rotate(dir, 1 * 60 * 60, expire_secs).unwrap();
 
             acc.ingest(2, 10);
             acc.ingest(1, 10);
             acc.write(acc_file("2").as_path(), 2 * 60 * 60).unwrap();
-            rotate(dir, 2 * 60 * 60).unwrap();
+            rotate(dir, 2 * 60 * 60, expire_secs).unwrap();
 
             acc.ingest(2, 10);
             acc.ingest(1, 20);
             acc.write(acc_file("3").as_path(), 3 * 60 * 60).unwrap();
-            rotate(dir, 3 * 60 * 60).unwrap();
+            rotate(dir, 3 * 60 * 60, expire_secs).unwrap();
 
             acc.ingest(1, 30);
         }
